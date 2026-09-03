@@ -7,7 +7,16 @@ const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes"); // 👈 novo
 const app = express();
 
-app.use(cors());
+// 👇 CORS liberado para qualquer origem, explicitamente
+const corsOptions = {
+  origin: "*", // aceita requisições de qualquer URL/domínio
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // responde o preflight (OPTIONS) pra qualquer rota
+
 app.use(express.json());
 app.use("/produtos", produtosRoutes);
 app.use("/users", usersRoutes);
