@@ -25,7 +25,7 @@ class ReservasService {
 
     // 1. Verifica se o cliente existe
     const { data: cliente, error: clienteError } = await supabase
-      .from("registro_clientes")
+      .from("registro_cliente")
       .select("id")
       .eq("id", id_cliente)
       .maybeSingle();
@@ -96,7 +96,9 @@ class ReservasService {
     if (produto.quantidade_estoque !== null) {
       const { error: estoqueError } = await supabase
         .from("produtos")
-        .update({ quantidade_estoque: produto.quantidade_estoque - quantidadeCompra })
+        .update({
+          quantidade_estoque: produto.quantidade_estoque - quantidadeCompra,
+        })
         .eq("id", id_produto);
 
       if (estoqueError) throw estoqueError;
@@ -108,7 +110,7 @@ class ReservasService {
   async findAll() {
     const { data, error } = await supabase
       .from("reservas")
-      .select("*, produto:produtos(*), cliente:registro_clientes(*)")
+      .select("*, produto:produtos(*), cliente:registro_cliente(*)")
       .order("data_reserva", { ascending: false });
 
     if (error) throw error;
@@ -119,7 +121,7 @@ class ReservasService {
   async findOne(id) {
     const { data: reserva, error } = await supabase
       .from("reservas")
-      .select("*, produto:produtos(*), cliente:registro_clientes(*)")
+      .select("*, produto:produtos(*), cliente:registro_cliente(*)")
       .eq("id", id)
       .maybeSingle();
 
@@ -151,7 +153,7 @@ class ReservasService {
   async findByAnfitriao(idAnfitriao) {
     const { data, error } = await supabase
       .from("reservas")
-      .select("*, produto:produtos!inner(*), cliente:registro_clientes(*)")
+      .select("*, produto:produtos!inner(*), cliente:registro_cliente(*)")
       .eq("produto.id_cliente_produto", idAnfitriao)
       .order("data_reserva", { ascending: false });
 
