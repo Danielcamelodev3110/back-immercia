@@ -7,15 +7,14 @@ const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes"); // 👈 novo
 const app = express();
 
-// 👇 CORS liberado para qualquer origem, explicitamente
+// 👇 CORS liberado para qualquer origem
 const corsOptions = {
-  origin: "*", // aceita requisições de qualquer URL/domínio
+  origin: "*",
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // responde o preflight (OPTIONS) pra qualquer rota
+app.use(cors(corsOptions)); // já cobre o preflight automaticamente
 
 app.use(express.json());
 app.use("/produtos", produtosRoutes);
@@ -25,7 +24,7 @@ app.use("/carrinho", carrinhoRoutes); // 👈 novo
 
 // 👇 Error handler central — precisa ser o ÚLTIMO app.use(), com 4 parâmetros
 app.use((err, req, res, next) => {
-  console.error(err); // isso vai te mostrar a causa real no terminal
+  console.error(err);
   const status = err.status || 500;
   res.status(status).json({
     message: err.message || "Erro interno no servidor.",
