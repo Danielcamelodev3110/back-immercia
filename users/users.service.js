@@ -85,10 +85,26 @@ function maskCpf(cpf) {
   return cpf.replace(/^(\d{3})\d{5}(\d{2})$/, "$1.***.***-$2");
 }
 
+// -----------------------------------------------------------------
+// Helper: normaliza e-mail (trim + lowercase) antes de qualquer
+// comparação ou gravação, pra evitar duplicidade/city case-mismatch
+// entre cadastros feitos pelo site (PHP) e pelo app (Node).
+// -----------------------------------------------------------------
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : email;
+}
+
 class UsersService {
   async create(createUserDto) {
     const opId = generateOpId();
-    const { senha, email, cpf, data_nascimento, ...rest } = createUserDto;
+    const {
+      senha,
+      email: emailBruto,
+      cpf,
+      data_nascimento,
+      ...rest
+    } = createUserDto;
+    const email = normalizeEmail(emailBruto);
 
     console.log(`[${opId}] ===== CREATE USER START =====`);
     console.log(
@@ -97,11 +113,13 @@ class UsersService {
 
     try {
       // 1. Validação de e-mail existente
+      // ⚠️ Usamos ilike (case-insensitive) pra pegar cadastros feitos
+      // pelo site (PHP), que salva e-mail sem forçar lowercase.
       const { data: emailExists, error: emailError } = await withTimeout(
         supabase
           .from("registro_cliente")
           .select("id")
-          .eq("email", email)
+          .ilike("email", email)
           .maybeSingle(),
         8000,
         "verificar e-mail existente",
@@ -169,6 +187,8 @@ class UsersService {
       );
 
       // 5. Inserção
+      // ⚠️ Gravamos o e-mail já normalizado (lowercase), pra manter
+      // consistência com o que o app espera ao buscar depois.
       const { data: user, error } = await withTimeout(
         supabase
           .from("registro_cliente")
@@ -276,16 +296,19 @@ class UsersService {
 
   async findByEmailWithPassword(email) {
     const opId = generateOpId();
+    const emailNormalizado = normalizeEmail(email);
     console.log(
-      `[${opId}] ===== LOGIN: BUSCAR POR EMAIL START ===== | email=${maskEmail(email)}`,
+      `[${opId}] ===== LOGIN: BUSCAR POR EMAIL START ===== | email=${maskEmail(emailNormalizado)}`,
     );
 
     try {
+      // ⚠️ ilike (case-insensitive) pra encontrar usuários cadastrados
+      // pelo site (PHP), que não normaliza o e-mail para minúsculas.
       const { data: user, error } = await withTimeout(
         supabase
           .from("registro_cliente")
           .select("*")
-          .eq("email", email)
+          .ilike("email", emailNormalizado)
           .maybeSingle(),
         8000,
         "buscar usuário para login",
@@ -294,7 +317,7 @@ class UsersService {
 
       if (error) {
         console.error(
-          `[${opId}] ❌ Erro ao buscar usuário para login | email=${maskEmail(email)}:`,
+          `[${opId}] ❌ Erro ao buscar usuário para login | email=${maskEmail(emailNormalizado)}:`,
           error,
         );
         throw error;
@@ -302,7 +325,7 @@ class UsersService {
 
       if (!user) {
         console.warn(
-          `[${opId}] ⚠️  Login falhou: e-mail não encontrado | email=${maskEmail(email)}`,
+          `[${opId}] ⚠️  Login falhou: e-mail não encontrado | email=${maskEmail(emailNormalizado)}`,
         );
       } else {
         console.log(
@@ -314,7 +337,7 @@ class UsersService {
       return user;
     } catch (err) {
       console.error(
-        `[${opId}] ===== LOGIN BUSCA FALHOU ===== | email=${maskEmail(email)} | mensagem=${err.message}`,
+        `[${opId}] ===== LOGIN BUSCA FALHOU ===== | email=${maskEmail(emailNormalizado)} | mensagem=${err.message}`,
       );
       throw err;
     }
@@ -327,14 +350,18 @@ class UsersService {
     );
 
     try {
+      const dadosAtualizacao = {
+        nome_completo: updateUserDto.nome_completo,
+        email: updateUserDto.email
+          ? normalizeEmail(updateUserDto.email)
+          : undefined,
+        telefone: updateUserDto.telefone,
+      };
+
       const { data: user, error } = await withTimeout(
         supabase
           .from("registro_cliente")
-          .update({
-            nome_completo: updateUserDto.nome_completo,
-            email: updateUserDto.email,
-            telefone: updateUserDto.telefone,
-          })
+          .update(dadosAtualizacao)
           .eq("id", id)
           .select()
           .maybeSingle(),
