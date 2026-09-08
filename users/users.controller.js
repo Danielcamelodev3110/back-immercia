@@ -1,5 +1,5 @@
-const bcrypt = require('bcrypt');
-const usersService = require('./users.service');
+const bcrypt = require("bcrypt");
+const usersService = require("./users.service");
 
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -15,14 +15,21 @@ exports.login = asyncHandler(async (req, res) => {
 
   const user = await usersService.findByEmailWithPassword(email);
   if (!user) {
-    const err = new Error('E-mail ou senha incorretos.');
+    const err = new Error("E-mail ou senha incorretos.");
     err.status = 401; // Unauthorized
     throw err;
   }
 
-  const passwordMatch = await bcrypt.compare(senha, user.senha_hash);
+  // ⚠️ Usuários cadastrados pelo site (PHP / password_hash) têm hash
+  // com prefixo $2y$. Algumas versões do pacote "bcrypt" do Node não
+  // reconhecem esse prefixo e retornam false mesmo com a senha certa.
+  // $2y$ e $2a$ são compatíveis no algoritmo bcrypt, então normalizamos
+  // antes de comparar. Hashes gerados pelo próprio Node (prefixo $2b$)
+  // não são afetados por essa troca.
+  const hashCompativel = user.senha_hash.replace(/^\$2y\$/, "$2a$");
+  const passwordMatch = await bcrypt.compare(senha, hashCompativel);
   if (!passwordMatch) {
-    const err = new Error('E-mail ou senha incorretos.');
+    const err = new Error("E-mail ou senha incorretos.");
     err.status = 401;
     throw err;
   }
@@ -31,7 +38,7 @@ exports.login = asyncHandler(async (req, res) => {
   const { senha_hash, ...sanitizedUser } = user;
 
   res.json({
-    message: 'Login realizado com sucesso!',
+    message: "Login realizado com sucesso!",
     user: sanitizedUser,
   });
 });
