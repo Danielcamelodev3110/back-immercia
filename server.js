@@ -6,6 +6,8 @@ const usersRoutes = require("./users/users.routes");
 const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes"); // 👈 novo
 const app = express();
+const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
+app.use("/pagamentos", pagamentosRoutes);
 
 // 👇 CORS liberado para qualquer origem
 const corsOptions = {
