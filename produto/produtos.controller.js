@@ -1,4 +1,4 @@
-const produtosService = require('./produtos.service');
+const produtosService = require("./produtos.service");
 
 // Pequeno helper pra evitar repetir try/catch em toda rota
 const asyncHandler = (fn) => (req, res, next) =>
@@ -31,4 +31,3 @@ exports.remove = asyncHandler(async (req, res) => {
   const produto = await produtosService.remove(id);
   res.json(produto);
 });
-
