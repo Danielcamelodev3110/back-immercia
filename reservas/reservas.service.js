@@ -19,7 +19,6 @@ class ReservasService {
       quantidade,
       data_checkin,
       data_checkout,
-      forma_pagamento,
       observacoes,
     } = createReservaDto;
 
@@ -81,7 +80,6 @@ class ReservasService {
         quantidade: quantidadeCompra,
         preco_total,
         status: "pendente",
-        forma_pagamento: forma_pagamento || null,
         codigo_reserva: gerarCodigoReserva(),
         data_checkin: data_checkin || null,
         data_checkout: data_checkout || null,
