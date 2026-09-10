@@ -23,6 +23,13 @@ class ReservasService {
       observacoes,
     } = createReservaDto;
 
+    // Validação básica de campos obrigatórios
+    if (!id_cliente || !id_produto) {
+      const err = new Error("id_cliente e id_produto são obrigatórios.");
+      err.status = 400;
+      throw err;
+    }
+
     // 1. Verifica se o cliente existe
     const { data: cliente, error: clienteError } = await supabase
       .from("registro_cliente")

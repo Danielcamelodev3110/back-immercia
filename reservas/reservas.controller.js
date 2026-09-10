@@ -1,5 +1,6 @@
 const reservasService = require("./reservas.service");
 
+// Wrapper para capturar erros de funções async e mandar pro middleware de erro
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -9,11 +10,13 @@ exports.create = asyncHandler(async (req, res) => {
   res.status(201).json(reserva);
 });
 
+// GET /reservas
 exports.findAll = asyncHandler(async (req, res) => {
   const reservas = await reservasService.findAll();
   res.json(reservas);
 });
 
+// GET /reservas/:id
 exports.findOne = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const reserva = await reservasService.findOne(id);
@@ -42,6 +45,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
   res.json(reserva);
 });
 
+// DELETE /reservas/:id
 exports.remove = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const reserva = await reservasService.remove(id);
