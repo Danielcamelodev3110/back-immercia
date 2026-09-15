@@ -98,6 +98,7 @@ class CarrinhoService {
           imagem_url,
           quantidade_estoque,
           status
+          taxa_aplicativo
         )
       `,
       )
