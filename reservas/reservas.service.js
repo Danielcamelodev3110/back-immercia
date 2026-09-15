@@ -3,10 +3,9 @@ const supabase = require("../supabaseClient");
 // Tabela "reservas": data_reserva, data_checkin, data_checkout, quantidade,
 // preco_total, status (pendente|confirmada|cancelada|concluida),
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
-// observacoes, id_cliente, id_produto.
+// observacoes, id_cliente, id_produto, taxa_plataforma.
 
 function gerarCodigoReserva() {
-  // Ex: RES-93F1K2A7 — simples e único o suficiente pra esse caso de uso.
   const aleatorio = Math.random().toString(36).slice(2, 10).toUpperCase();
   return `RES-${aleatorio}`;
 }
@@ -68,8 +67,11 @@ class ReservasService {
       throw err;
     }
 
-    // 4. Calcula o preço total no backend (nunca confia no valor vindo do front)
-    const preco_total = Number(produto.preco) * quantidadeCompra;
+    // 4. Calcula os valores no backend (garante precisão de 2 casas decimais)
+    const preco_total = Number(
+      (Number(produto.preco) * quantidadeCompra).toFixed(2),
+    );
+    const taxa_plataforma = Number((0.08 * preco_total).toFixed(2));
 
     // 5. Cria a reserva
     const { data: reserva, error: reservaError } = await supabase
@@ -79,6 +81,7 @@ class ReservasService {
         id_produto,
         quantidade: quantidadeCompra,
         preco_total,
+        taxa_plataforma,
         status: "pendente",
         codigo_reserva: gerarCodigoReserva(),
         data_checkin: data_checkin || null,
