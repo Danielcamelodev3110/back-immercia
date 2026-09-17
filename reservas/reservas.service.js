@@ -13,7 +13,7 @@ const supabase = require("../supabaseClient");
 // anfitrião. `preco_total` (o que o cliente efetivamente paga) já
 // inclui a taxa; o anfitrião recebe o preço cheio do produto.
 const TAXA_PLATAFORMA_PERCENTUAL = Number(
-  process.env.TAXA_PLATAFORMA_PERCENTUAL || 0.08,
+  process.env.TAXA_PLATAFORMA_PERCENTUAL || 0.1,
 );
 
 function gerarCodigoReserva() {
