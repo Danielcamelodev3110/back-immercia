@@ -5,10 +5,13 @@ const supabase = require("../supabaseClient");
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
 // observacoes, id_cliente, id_produto, taxa_plataforma.
 
-// 👇 Percentual da taxa da plataforma (comissão cobrada do anfitrião sobre
-// o valor da reserva). Configurável via .env (ex: TAXA_PLATAFORMA_PERCENTUAL=0.08
-// para 8%). O comprador NUNCA paga a mais por causa dessa taxa — ela é
-// descontada do valor repassado ao anfitrião.
+// 👇 Percentual da taxa da plataforma. Configurável via .env (ex:
+// TAXA_PLATAFORMA_PERCENTUAL=0.08 para 8%).
+//
+// 🔧 REGRA DE NEGÓCIO (atualizada): a taxa é um ACRÉSCIMO cobrado do
+// COMPRADOR sobre o preço do produto — não é mais descontada do
+// anfitrião. `preco_total` (o que o cliente efetivamente paga) já
+// inclui a taxa; o anfitrião recebe o preço cheio do produto.
 const TAXA_PLATAFORMA_PERCENTUAL = Number(
   process.env.TAXA_PLATAFORMA_PERCENTUAL || 0.08,
 );
@@ -18,9 +21,11 @@ function gerarCodigoReserva() {
   return `RES-${aleatorio}`;
 }
 
-// Calcula quanto o anfitrião efetivamente recebe depois de descontada a
-// taxa_plataforma. Não é uma coluna no banco — é derivado em tempo real
-// pra nunca ficar desatualizado em relação a preco_total/taxa_plataforma.
+// Calcula quanto o anfitrião efetivamente recebe. Como agora a taxa é
+// somada em cima do preço (e não descontada dele), "preco_total - taxa"
+// devolve exatamente o preço cheio do produto — o que o anfitrião recebe.
+// Não é uma coluna no banco — é derivado em tempo real pra nunca ficar
+// desatualizado em relação a preco_total/taxa_plataforma.
 function comValorRepasse(reserva) {
   if (!reserva) return reserva;
 
@@ -92,12 +97,17 @@ class ReservasService {
     }
 
     // 4. Calcula os valores no backend (garante precisão de 2 casas decimais)
-    const preco_total = Number(
+    // 🔧 preco_base = valor que o anfitrião recebe (preço do produto x quantidade).
+    // taxa_plataforma = percentual aplicado sobre o preco_base.
+    // preco_total = preco_base + taxa_plataforma → é isso que o CLIENTE paga,
+    // e é o valor que deve ser usado na tela/cobrança de pagamento.
+    const preco_base = Number(
       (Number(produto.preco) * quantidadeCompra).toFixed(2),
     );
     const taxa_plataforma = Number(
-      (TAXA_PLATAFORMA_PERCENTUAL * preco_total).toFixed(2),
+      (TAXA_PLATAFORMA_PERCENTUAL * preco_base).toFixed(2),
     );
+    const preco_total = Number((preco_base + taxa_plataforma).toFixed(2));
 
     // 5. Cria a reserva
     const { data: reserva, error: reservaError } = await supabase
@@ -189,8 +199,10 @@ class ReservasService {
     return comValorRepasse(data);
   }
 
-  // Resumo financeiro do anfitrião: quanto ele vendeu no bruto, quanto a
-  // plataforma reteve de taxa e quanto ele efetivamente recebe (líquido).
+  // Resumo financeiro do anfitrião: quanto foi cobrado dos clientes no
+  // total (incluindo a taxa da plataforma, que agora é paga por eles),
+  // quanto disso é taxa da plataforma, e quanto o anfitrião efetivamente
+  // recebe (o preço cheio do produto, sem desconto nenhum).
   // Considera apenas reservas "confirmada" ou "concluida" (reservas
   // pendentes/canceladas ainda não geram receita real).
   async resumoGanhos(idAnfitriao) {
