@@ -5,9 +5,33 @@ const supabase = require("../supabaseClient");
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
 // observacoes, id_cliente, id_produto, taxa_plataforma.
 
+// 👇 Percentual da taxa da plataforma (comissão cobrada do anfitrião sobre
+// o valor da reserva). Configurável via .env (ex: TAXA_PLATAFORMA_PERCENTUAL=0.08
+// para 8%). O comprador NUNCA paga a mais por causa dessa taxa — ela é
+// descontada do valor repassado ao anfitrião.
+const TAXA_PLATAFORMA_PERCENTUAL = Number(
+  process.env.TAXA_PLATAFORMA_PERCENTUAL || 0.08,
+);
+
 function gerarCodigoReserva() {
   const aleatorio = Math.random().toString(36).slice(2, 10).toUpperCase();
   return `RES-${aleatorio}`;
+}
+
+// Calcula quanto o anfitrião efetivamente recebe depois de descontada a
+// taxa_plataforma. Não é uma coluna no banco — é derivado em tempo real
+// pra nunca ficar desatualizado em relação a preco_total/taxa_plataforma.
+function comValorRepasse(reserva) {
+  if (!reserva) return reserva;
+
+  const aplicar = (r) => {
+    if (r.preco_total === undefined || r.preco_total === null) return r;
+    const taxa = Number(r.taxa_plataforma || 0);
+    const valor_repasse = Number((Number(r.preco_total) - taxa).toFixed(2));
+    return { ...r, valor_repasse };
+  };
+
+  return Array.isArray(reserva) ? reserva.map(aplicar) : aplicar(reserva);
 }
 
 class ReservasService {
@@ -71,7 +95,9 @@ class ReservasService {
     const preco_total = Number(
       (Number(produto.preco) * quantidadeCompra).toFixed(2),
     );
-    const taxa_plataforma = Number((0.08 * preco_total).toFixed(2));
+    const taxa_plataforma = Number(
+      (TAXA_PLATAFORMA_PERCENTUAL * preco_total).toFixed(2),
+    );
 
     // 5. Cria a reserva
     const { data: reserva, error: reservaError } = await supabase
@@ -105,7 +131,7 @@ class ReservasService {
       if (estoqueError) throw estoqueError;
     }
 
-    return reserva;
+    return comValorRepasse(reserva);
   }
 
   async findAll() {
@@ -116,7 +142,7 @@ class ReservasService {
 
     if (error) throw error;
 
-    return data;
+    return comValorRepasse(data);
   }
 
   async findOne(id) {
@@ -134,7 +160,7 @@ class ReservasService {
       throw err;
     }
 
-    return reserva;
+    return comValorRepasse(reserva);
   }
 
   // "Minhas compras" — reservas feitas por um cliente
@@ -147,7 +173,7 @@ class ReservasService {
 
     if (error) throw error;
 
-    return data;
+    return comValorRepasse(data);
   }
 
   // Reservas recebidas pelo anfitrião (produtos dele que foram comprados)
@@ -160,7 +186,49 @@ class ReservasService {
 
     if (error) throw error;
 
-    return data;
+    return comValorRepasse(data);
+  }
+
+  // Resumo financeiro do anfitrião: quanto ele vendeu no bruto, quanto a
+  // plataforma reteve de taxa e quanto ele efetivamente recebe (líquido).
+  // Considera apenas reservas "confirmada" ou "concluida" (reservas
+  // pendentes/canceladas ainda não geram receita real).
+  async resumoGanhos(idAnfitriao) {
+    const { data, error } = await supabase
+      .from("reservas")
+      .select(
+        "id, status, preco_total, taxa_plataforma, produto:produtos!inner(id_cliente_produto)",
+      )
+      .eq("produto.id_cliente_produto", idAnfitriao)
+      .in("status", ["confirmada", "concluida"]);
+
+    if (error) throw error;
+
+    const resumo = (data || []).reduce(
+      (acc, r) => {
+        const bruto = Number(r.preco_total || 0);
+        const taxa = Number(r.taxa_plataforma || 0);
+        acc.totalBruto += bruto;
+        acc.totalTaxaPlataforma += taxa;
+        acc.totalLiquido += bruto - taxa;
+        acc.quantidadeReservas += 1;
+        return acc;
+      },
+      {
+        totalBruto: 0,
+        totalTaxaPlataforma: 0,
+        totalLiquido: 0,
+        quantidadeReservas: 0,
+      },
+    );
+
+    return {
+      totalBruto: Number(resumo.totalBruto.toFixed(2)),
+      totalTaxaPlataforma: Number(resumo.totalTaxaPlataforma.toFixed(2)),
+      totalLiquido: Number(resumo.totalLiquido.toFixed(2)),
+      quantidadeReservas: resumo.quantidadeReservas,
+      percentualTaxa: TAXA_PLATAFORMA_PERCENTUAL,
+    };
   }
 
   async updateStatus(id, status) {
@@ -207,7 +275,7 @@ class ReservasService {
       throw err;
     }
 
-    return data;
+    return comValorRepasse(data);
   }
 }
 

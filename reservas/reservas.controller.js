@@ -34,6 +34,13 @@ exports.findByAnfitriao = asyncHandler(async (req, res) => {
   res.json(reservas);
 });
 
+// GET /reservas/resumo-ganhos/:idAnfitriao — usado pela tela "Meus Ganhos"
+exports.resumoGanhos = asyncHandler(async (req, res) => {
+  const idAnfitriao = Number(req.params.idAnfitriao);
+  const resumo = await reservasService.resumoGanhos(idAnfitriao);
+  res.json(resumo);
+});
+
 // PATCH /reservas/:id/status  body: { status: "confirmada" }
 exports.updateStatus = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);

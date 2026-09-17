@@ -9,6 +9,7 @@ router.get("/", reservasController.findAll);
 // ⚠️ Rotas com prefixo fixo precisam vir ANTES de '/:id'
 router.get("/minhas-compras/:idCliente", reservasController.findByCliente);
 router.get("/recebidas/:idAnfitriao", reservasController.findByAnfitriao);
+router.get("/resumo-ganhos/:idAnfitriao", reservasController.resumoGanhos);
 
 router.get("/:id", reservasController.findOne);
 router.patch("/:id/status", reservasController.updateStatus);

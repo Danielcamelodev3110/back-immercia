@@ -14,8 +14,8 @@ function gerarTransacaoId() {
 
 class PagamentosService {
   async create({ id_reserva, valor, forma_pagamento }) {
-    if (!id_reserva || valor === undefined || valor === null) {
-      const err = new Error("id_reserva e valor são obrigatórios.");
+    if (!id_reserva) {
+      const err = new Error("id_reserva é obrigatório.");
       err.status = 400;
       throw err;
     }
@@ -23,7 +23,7 @@ class PagamentosService {
     // 1. Confere se a reserva existe
     const { data: reserva, error: reservaError } = await supabase
       .from("reservas")
-      .select("id, status, preco_total")
+      .select("id, status, preco_total, taxa_plataforma")
       .eq("id", id_reserva)
       .maybeSingle();
 
@@ -50,6 +50,26 @@ class PagamentosService {
       throw err;
     }
 
+    // 2.1 ⚠️ NUNCA confiar no "valor" que vem do app pra decidir quanto
+    // cobrar — quem manda é o preco_total já calculado no backend na
+    // hora da criação da reserva (reservas.service.js), que já embute a
+    // taxa_plataforma no cálculo do repasse ao anfitrião. Se um valor
+    // vier no corpo da requisição, ele só é aceito como conferência
+    // (o app pode mandar pra exibir/registrar), mas se divergir do que
+    // está gravado na reserva o pagamento é recusado — evita que alguém
+    // manipule a chamada e pague menos do que o preco_total da reserva.
+    const valorCorreto = Number(reserva.preco_total);
+    if (valor !== undefined && valor !== null) {
+      const diferenca = Math.abs(Number(valor) - valorCorreto);
+      if (diferenca > 0.01) {
+        const err = new Error(
+          `Valor do pagamento (${valor}) não confere com o valor da reserva (${valorCorreto}).`,
+        );
+        err.status = 400;
+        throw err;
+      }
+    }
+
     // 3. ⚠️ SIMULAÇÃO DE PAGAMENTO — aprova imediatamente, sem gateway
     // real. Isso é o que muda quando você integrar um gateway de
     // verdade: o status normalmente começaria como "pendente" aqui e
@@ -60,7 +80,7 @@ class PagamentosService {
     const { data: pagamento, error: pagamentoError } = await supabase
       .from("pagamentos")
       .insert({
-        valor,
+        valor: valorCorreto,
         forma_pagamento: forma_pagamento || null,
         status: "aprovado",
         transacao_id,
