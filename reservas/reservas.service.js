@@ -3,17 +3,22 @@ const supabase = require("../supabaseClient");
 // Tabela "reservas": data_reserva, data_checkin, data_checkout, quantidade,
 // preco_total, status (pendente|confirmada|cancelada|concluida),
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
-// observacoes, id_cliente, id_produto, taxa_plataforma.
+// observacoes, id_cliente, id_produto, taxa_plataforma, taxa_produto.
 
-// 👇 Percentual da taxa da plataforma. Configurável via .env (ex:
-// TAXA_PLATAFORMA_PERCENTUAL=0.08 para 8%).
-//
-// 🔧 REGRA DE NEGÓCIO (atualizada): a taxa é um ACRÉSCIMO cobrado do
-// COMPRADOR sobre o preço do produto — não é mais descontada do
-// anfitrião. `preco_total` (o que o cliente efetivamente paga) já
-// inclui a taxa; o anfitrião recebe o preço cheio do produto.
+// 👇 Percentuais das taxas. Configuráveis via .env:
+// - TAXA_PLATAFORMA_PERCENTUAL (padrão 0.10 = 10%): cobrada do CLIENTE,
+//   somada ao preço do produto. É o que aparece pro comprador no
+//   carrinho e no pagamento como "Taxa da Plataforma".
+// - TAXA_PRODUTO_PERCENTUAL (padrão 0.03 = 3%): cobrada do ANFITRIÃO,
+//   descontada do valor que ele recebe. Calculada sobre o preço BASE do
+//   produto (sem a taxa da plataforma embutida). Essa taxa NUNCA deve
+//   ser exibida nas telas de carrinho ou pagamento — é informação
+//   interna do repasse ao anfitrião.
 const TAXA_PLATAFORMA_PERCENTUAL = Number(
   process.env.TAXA_PLATAFORMA_PERCENTUAL || 0.1,
+);
+const TAXA_PRODUTO_PERCENTUAL = Number(
+  process.env.TAXA_PRODUTO_PERCENTUAL || 0.03,
 );
 
 function gerarCodigoReserva() {
@@ -21,18 +26,23 @@ function gerarCodigoReserva() {
   return `RES-${aleatorio}`;
 }
 
-// Calcula quanto o anfitrião efetivamente recebe. Como agora a taxa é
-// somada em cima do preço (e não descontada dele), "preco_total - taxa"
-// devolve exatamente o preço cheio do produto — o que o anfitrião recebe.
+// Calcula quanto o anfitrião efetivamente recebe:
+// preco_total já inclui a taxa_plataforma (10%, paga pelo cliente), então
+// "preco_total - taxa_plataforma" devolve o preço base do produto. Desse
+// preço base, ainda desconta a taxa_produto (3%, do anfitrião) — o
+// resultado final é o valor líquido que cai pro anfitrião.
 // Não é uma coluna no banco — é derivado em tempo real pra nunca ficar
-// desatualizado em relação a preco_total/taxa_plataforma.
+// desatualizado em relação a preco_total/taxa_plataforma/taxa_produto.
 function comValorRepasse(reserva) {
   if (!reserva) return reserva;
 
   const aplicar = (r) => {
     if (r.preco_total === undefined || r.preco_total === null) return r;
-    const taxa = Number(r.taxa_plataforma || 0);
-    const valor_repasse = Number((Number(r.preco_total) - taxa).toFixed(2));
+    const taxaPlataforma = Number(r.taxa_plataforma || 0);
+    const taxaProduto = Number(r.taxa_produto || 0);
+    const valor_repasse = Number(
+      (Number(r.preco_total) - taxaPlataforma - taxaProduto).toFixed(2),
+    );
     return { ...r, valor_repasse };
   };
 
@@ -97,15 +107,22 @@ class ReservasService {
     }
 
     // 4. Calcula os valores no backend (garante precisão de 2 casas decimais)
-    // 🔧 preco_base = valor que o anfitrião recebe (preço do produto x quantidade).
-    // taxa_plataforma = percentual aplicado sobre o preco_base.
-    // preco_total = preco_base + taxa_plataforma → é isso que o CLIENTE paga,
-    // e é o valor que deve ser usado na tela/cobrança de pagamento.
+    // 🔧 preco_base = preço do produto x quantidade, sem nenhuma taxa.
+    // taxa_plataforma (10%) = cobrada do CLIENTE, somada ao preco_base
+    //   → forma o preco_total, que é o que o cliente paga. Aparece nas
+    //   telas de carrinho e pagamento.
+    // taxa_produto (3%) = cobrada do ANFITRIÃO, calculada sobre o
+    //   preco_base (nunca sobre o preco_total, que já tem a taxa do
+    //   cliente embutida) → só é descontada do repasse ao anfitrião.
+    //   NUNCA deve ser exibida nas telas de carrinho ou pagamento.
     const preco_base = Number(
       (Number(produto.preco) * quantidadeCompra).toFixed(2),
     );
     const taxa_plataforma = Number(
       (TAXA_PLATAFORMA_PERCENTUAL * preco_base).toFixed(2),
+    );
+    const taxa_produto = Number(
+      (TAXA_PRODUTO_PERCENTUAL * preco_base).toFixed(2),
     );
     const preco_total = Number((preco_base + taxa_plataforma).toFixed(2));
 
@@ -118,6 +135,7 @@ class ReservasService {
         quantidade: quantidadeCompra,
         preco_total,
         taxa_plataforma,
+        taxa_produto,
         status: "pendente",
         codigo_reserva: gerarCodigoReserva(),
         data_checkin: data_checkin || null,
@@ -200,16 +218,16 @@ class ReservasService {
   }
 
   // Resumo financeiro do anfitrião: quanto foi cobrado dos clientes no
-  // total (incluindo a taxa da plataforma, que agora é paga por eles),
-  // quanto disso é taxa da plataforma, e quanto o anfitrião efetivamente
-  // recebe (o preço cheio do produto, sem desconto nenhum).
-  // Considera apenas reservas "confirmada" ou "concluida" (reservas
-  // pendentes/canceladas ainda não geram receita real).
+  // total (preço + taxa da plataforma de 10%), quanto disso é taxa da
+  // plataforma, quanto é taxa do produto (3%, descontada do anfitrião)
+  // e quanto o anfitrião efetivamente recebe no fim (preço base - taxa
+  // do produto). Considera apenas reservas "confirmada" ou "concluida"
+  // (reservas pendentes/canceladas ainda não geram receita real).
   async resumoGanhos(idAnfitriao) {
     const { data, error } = await supabase
       .from("reservas")
       .select(
-        "id, status, preco_total, taxa_plataforma, produto:produtos!inner(id_cliente_produto)",
+        "id, status, preco_total, taxa_plataforma, taxa_produto, produto:produtos!inner(id_cliente_produto)",
       )
       .eq("produto.id_cliente_produto", idAnfitriao)
       .in("status", ["confirmada", "concluida"]);
@@ -219,16 +237,19 @@ class ReservasService {
     const resumo = (data || []).reduce(
       (acc, r) => {
         const bruto = Number(r.preco_total || 0);
-        const taxa = Number(r.taxa_plataforma || 0);
+        const taxaPlataforma = Number(r.taxa_plataforma || 0);
+        const taxaProduto = Number(r.taxa_produto || 0);
         acc.totalBruto += bruto;
-        acc.totalTaxaPlataforma += taxa;
-        acc.totalLiquido += bruto - taxa;
+        acc.totalTaxaPlataforma += taxaPlataforma;
+        acc.totalTaxaProduto += taxaProduto;
+        acc.totalLiquido += bruto - taxaPlataforma - taxaProduto;
         acc.quantidadeReservas += 1;
         return acc;
       },
       {
         totalBruto: 0,
         totalTaxaPlataforma: 0,
+        totalTaxaProduto: 0,
         totalLiquido: 0,
         quantidadeReservas: 0,
       },
@@ -237,9 +258,11 @@ class ReservasService {
     return {
       totalBruto: Number(resumo.totalBruto.toFixed(2)),
       totalTaxaPlataforma: Number(resumo.totalTaxaPlataforma.toFixed(2)),
+      totalTaxaProduto: Number(resumo.totalTaxaProduto.toFixed(2)),
       totalLiquido: Number(resumo.totalLiquido.toFixed(2)),
       quantidadeReservas: resumo.quantidadeReservas,
       percentualTaxa: TAXA_PLATAFORMA_PERCENTUAL,
+      percentualTaxaProduto: TAXA_PRODUTO_PERCENTUAL,
     };
   }
 
