@@ -6,7 +6,7 @@ const usersRoutes = require("./users/users.routes");
 const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes");
 const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
-const relatorioRoutes = require("./relatorio/relatorio.routes");
+const relatorioRoutes = require("./reservas/relatorio.routes");
 
 const app = express();
 
