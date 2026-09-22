@@ -26,13 +26,13 @@ function gerarCodigoReserva() {
   return `RES-${aleatorio}`;
 }
 
-// Calcula quanto o anfitrião efetivamente recebe:
-// preco_total já inclui a taxa_plataforma (10%, paga pelo cliente), então
-// "preco_total - taxa_plataforma" devolve o preço base do produto. Desse
-// preço base, ainda desconta a taxa_produto (3%, do anfitrião) — o
-// resultado final é o valor líquido que cai pro anfitrião.
-// Não é uma coluna no banco — é derivado em tempo real pra nunca ficar
-// desatualizado em relação a preco_total/taxa_plataforma/taxa_produto.
+// Calcula os valores derivados do lado do anfitrião:
+// - preco_base: preço do produto sem nenhuma taxa (preco_total - taxa_plataforma,
+//   já que preco_total inclui a taxa de 10% paga pelo cliente).
+// - valor_repasse: o que o anfitrião efetivamente recebe (preco_base - taxa_produto,
+//   a taxa de 3% dele).
+// Nenhum dos dois é uma coluna no banco — são derivados em tempo real pra
+// nunca ficar desatualizado em relação a preco_total/taxa_plataforma/taxa_produto.
 function comValorRepasse(reserva) {
   if (!reserva) return reserva;
 
@@ -40,10 +40,11 @@ function comValorRepasse(reserva) {
     if (r.preco_total === undefined || r.preco_total === null) return r;
     const taxaPlataforma = Number(r.taxa_plataforma || 0);
     const taxaProduto = Number(r.taxa_produto || 0);
-    const valor_repasse = Number(
-      (Number(r.preco_total) - taxaPlataforma - taxaProduto).toFixed(2),
+    const preco_base = Number(
+      (Number(r.preco_total) - taxaPlataforma).toFixed(2),
     );
-    return { ...r, valor_repasse };
+    const valor_repasse = Number((preco_base - taxaProduto).toFixed(2));
+    return { ...r, preco_base, valor_repasse };
   };
 
   return Array.isArray(reserva) ? reserva.map(aplicar) : aplicar(reserva);
@@ -217,12 +218,11 @@ class ReservasService {
     return comValorRepasse(data);
   }
 
-  // Resumo financeiro do anfitrião: quanto foi cobrado dos clientes no
-  // total (preço + taxa da plataforma de 10%), quanto disso é taxa da
-  // plataforma, quanto é taxa do produto (3%, descontada do anfitrião)
-  // e quanto o anfitrião efetivamente recebe no fim (preço base - taxa
-  // do produto). Considera apenas reservas "confirmada" ou "concluida"
-  // (reservas pendentes/canceladas ainda não geram receita real).
+  // Resumo financeiro do anfitrião — mostra só o que é dele: quanto ele
+  // vendeu (preço base, sem a taxa de 10% que é do cliente), quanto foi
+  // descontado da taxa dele (3%) e quanto sobrou líquido. Não expõe nada
+  // relacionado à taxa do cliente. Considera apenas reservas "confirmada"
+  // ou "concluida" (pendentes/canceladas ainda não geram receita real).
   async resumoGanhos(idAnfitriao) {
     const { data, error } = await supabase
       .from("reservas")
@@ -236,19 +236,20 @@ class ReservasService {
 
     const resumo = (data || []).reduce(
       (acc, r) => {
-        const bruto = Number(r.preco_total || 0);
+        const precoTotal = Number(r.preco_total || 0);
         const taxaPlataforma = Number(r.taxa_plataforma || 0);
         const taxaProduto = Number(r.taxa_produto || 0);
-        acc.totalBruto += bruto;
-        acc.totalTaxaPlataforma += taxaPlataforma;
+        // preço base = o que a reserva vale sem a taxa do cliente
+        const precoBase = precoTotal - taxaPlataforma;
+
+        acc.totalBruto += precoBase;
         acc.totalTaxaProduto += taxaProduto;
-        acc.totalLiquido += bruto - taxaPlataforma - taxaProduto;
+        acc.totalLiquido += precoBase - taxaProduto;
         acc.quantidadeReservas += 1;
         return acc;
       },
       {
         totalBruto: 0,
-        totalTaxaPlataforma: 0,
         totalTaxaProduto: 0,
         totalLiquido: 0,
         quantidadeReservas: 0,
@@ -257,11 +258,9 @@ class ReservasService {
 
     return {
       totalBruto: Number(resumo.totalBruto.toFixed(2)),
-      totalTaxaPlataforma: Number(resumo.totalTaxaPlataforma.toFixed(2)),
       totalTaxaProduto: Number(resumo.totalTaxaProduto.toFixed(2)),
       totalLiquido: Number(resumo.totalLiquido.toFixed(2)),
       quantidadeReservas: resumo.quantidadeReservas,
-      percentualTaxa: TAXA_PLATAFORMA_PERCENTUAL,
       percentualTaxaProduto: TAXA_PRODUTO_PERCENTUAL,
     };
   }
