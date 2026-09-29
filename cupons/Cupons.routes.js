@@ -10,6 +10,7 @@ router.get("/", cuponsController.findAll);
 router.get("/resgatados/:idCliente", cuponsController.findResgatadosPorCliente);
 
 router.get("/:codigo", cuponsController.findByCodigo);
+router.post("/:codigo/validar", cuponsController.validarParaUso);
 router.post("/:id/resgatar", cuponsController.resgatar);
 
 module.exports = router;

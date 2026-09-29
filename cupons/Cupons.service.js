@@ -142,6 +142,77 @@ class CuponsService {
     return resgate;
   }
 
+  // Valida se um cliente pode USAR um cupom numa compra (chamado tanto
+  // pelo carrinho, pra mostrar o desconto, quanto pelo backend de
+  // reservas, que nunca confia no que o app calculou). Exige que:
+  // - o cupom exista, esteja ativo e dentro da validade
+  // - a compra atinja o valor mínimo do cupom
+  // - o cliente já tenha resgatado esse cupom (linha em cupons_resgates)
+  // - esse resgate ainda não tenha sido usado numa compra anterior
+  async validarParaUso(codigo, idCliente, valorCompra) {
+    const cupom = await this.findByCodigo(codigo); // já lança 404 se não existir
+
+    if (!cupom.ativo) {
+      const err = new Error("Esse cupom não está mais ativo.");
+      err.status = 409;
+      throw err;
+    }
+
+    if (cupom.data_validade) {
+      const hoje = new Date().toISOString().slice(0, 10);
+      if (cupom.data_validade < hoje) {
+        const err = new Error("Esse cupom expirou.");
+        err.status = 409;
+        throw err;
+      }
+    }
+
+    if (Number(valorCompra) < Number(cupom.valor_minimo_compra || 0)) {
+      const err = new Error(
+        `Esse cupom exige compra mínima de R$ ${Number(
+          cupom.valor_minimo_compra,
+        ).toFixed(2)}.`,
+      );
+      err.status = 409;
+      throw err;
+    }
+
+    const { data: resgate, error: resgateError } = await supabase
+      .from("cupons_resgates")
+      .select("id, usado")
+      .eq("id_cupom", cupom.id)
+      .eq("id_cliente", idCliente)
+      .maybeSingle();
+
+    if (resgateError) throw resgateError;
+    if (!resgate) {
+      const err = new Error(
+        "Resgate esse cupom na tela de Cupons antes de usá-lo.",
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (resgate.usado) {
+      const err = new Error("Você já usou esse cupom antes.");
+      err.status = 409;
+      throw err;
+    }
+
+    return cupom;
+  }
+
+  // Marca o resgate de um cupom como usado, vinculado à reserva criada.
+  // Chamado só DEPOIS que a reserva é criada com sucesso.
+  async marcarComoUsado(idCupom, idCliente, idReserva) {
+    const { error } = await supabase
+      .from("cupons_resgates")
+      .update({ usado: true, id_reserva: idReserva })
+      .eq("id_cupom", idCupom)
+      .eq("id_cliente", idCliente);
+
+    if (error) throw error;
+  }
+
   // Ids dos cupons que um cliente já resgatou — a tela usa isso pra
   // pintar "usado" sem precisar de uma chamada por cupom.
   async findResgatadosPorCliente(idCliente) {

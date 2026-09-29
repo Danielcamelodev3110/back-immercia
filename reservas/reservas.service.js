@@ -1,9 +1,11 @@
 const supabase = require("../supabaseClient");
+const cuponsService = require("./cupons/cupons.service");
 
 // Tabela "reservas": data_reserva, data_checkin, data_checkout, quantidade,
 // preco_total, status (pendente|confirmada|cancelada|concluida),
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
-// observacoes, id_cliente, id_produto, taxa_plataforma, taxa_produto.
+// observacoes, id_cliente, id_produto, taxa_plataforma, taxa_produto,
+// codigo_cupom, valor_desconto.
 
 // 👇 Percentuais das taxas. Configuráveis via .env:
 // - TAXA_PLATAFORMA_PERCENTUAL (padrão 0.10 = 10%): cobrada do CLIENTE,
@@ -59,6 +61,7 @@ class ReservasService {
       data_checkin,
       data_checkout,
       observacoes,
+      codigo_cupom,
     } = createReservaDto;
 
     // 1. Verifica se o cliente existe
@@ -108,7 +111,34 @@ class ReservasService {
     }
 
     // 4. Calcula os valores no backend (garante precisão de 2 casas decimais)
-    // 🔧 preco_base = preço do produto x quantidade, sem nenhuma taxa.
+    // 🔧 preco_base_sem_desconto = preço do produto x quantidade, cru.
+    const preco_base_sem_desconto = Number(
+      (Number(produto.preco) * quantidadeCompra).toFixed(2),
+    );
+
+    // 4.1 ⚠️ Cupom: NUNCA confia no desconto calculado pelo app — revalida
+    // tudo aqui (mesmo padrão de segurança do pagamentos.service.js pro
+    // valor). Se o código não existir/expirou/não foi resgatado pelo
+    // cliente/já foi usado, a validação lança erro e a reserva não é
+    // criada.
+    let cupomValidado = null;
+    let valor_desconto = 0;
+    if (codigo_cupom) {
+      cupomValidado = await cuponsService.validarParaUso(
+        codigo_cupom,
+        id_cliente,
+        preco_base_sem_desconto,
+      );
+      valor_desconto = Number(
+        (
+          (preco_base_sem_desconto *
+            Number(cupomValidado.percentual_desconto)) /
+          100
+        ).toFixed(2),
+      );
+    }
+
+    // preco_base = preço já com o desconto do cupom aplicado (se houver).
     // taxa_plataforma (10%) = cobrada do CLIENTE, somada ao preco_base
     //   → forma o preco_total, que é o que o cliente paga. Aparece nas
     //   telas de carrinho e pagamento.
@@ -117,7 +147,7 @@ class ReservasService {
     //   cliente embutida) → só é descontada do repasse ao anfitrião.
     //   NUNCA deve ser exibida nas telas de carrinho ou pagamento.
     const preco_base = Number(
-      (Number(produto.preco) * quantidadeCompra).toFixed(2),
+      (preco_base_sem_desconto - valor_desconto).toFixed(2),
     );
     const taxa_plataforma = Number(
       (TAXA_PLATAFORMA_PERCENTUAL * preco_base).toFixed(2),
@@ -137,6 +167,8 @@ class ReservasService {
         preco_total,
         taxa_plataforma,
         taxa_produto,
+        codigo_cupom: cupomValidado ? cupomValidado.codigo : null,
+        valor_desconto,
         status: "pendente",
         codigo_reserva: gerarCodigoReserva(),
         data_checkin: data_checkin || null,
@@ -158,6 +190,17 @@ class ReservasService {
         .eq("id", id_produto);
 
       if (estoqueError) throw estoqueError;
+    }
+
+    // 7. Marca o cupom como usado (se algum foi aplicado), vinculado a
+    // essa reserva — impede reaproveitar o mesmo resgate numa próxima
+    // compra.
+    if (cupomValidado) {
+      await cuponsService.marcarComoUsado(
+        cupomValidado.id,
+        id_cliente,
+        reserva.id,
+      );
     }
 
     return comValorRepasse(reserva);

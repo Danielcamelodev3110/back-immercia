@@ -33,6 +33,25 @@ exports.resgatar = asyncHandler(async (req, res) => {
   res.status(201).json(resgate);
 });
 
+// POST /cupons/:codigo/validar  body: { id_cliente, valor_compra }
+exports.validarParaUso = asyncHandler(async (req, res) => {
+  const { codigo } = req.params;
+  const { id_cliente, valor_compra } = req.body;
+
+  if (!id_cliente) {
+    const err = new Error("id_cliente é obrigatório.");
+    err.status = 400;
+    throw err;
+  }
+
+  const cupom = await cuponsService.validarParaUso(
+    codigo,
+    id_cliente,
+    valor_compra || 0,
+  );
+  res.json(cupom);
+});
+
 // GET /cupons/resgatados/:idCliente
 exports.findResgatadosPorCliente = asyncHandler(async (req, res) => {
   const idCliente = Number(req.params.idCliente);
