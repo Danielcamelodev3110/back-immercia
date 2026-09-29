@@ -1,4 +1,4 @@
-const cuponsService = require("cupons.service");
+const cuponsService = require("./Cupons.service");
 
 const asyncHandler = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
