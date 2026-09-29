@@ -6,7 +6,8 @@ const usersRoutes = require("./users/users.routes");
 const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes");
 const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
-const relatorioRoutes = require("./reservas/relatorio.routes");
+const relatorioRoutes = require("./relatorio/relatorio.routes");
+const cuponsRoutes = require("cupons/cupons.routes");
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use("/reservas", reservasRoutes);
 app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
 app.use("/relatorio", relatorioRoutes);
+app.use("/cupons", cuponsRoutes);
 
 // 👇 Error handler central — precisa ser o ÚLTIMO app.use(), com 4 parâmetros
 app.use((err, req, res, next) => {
