@@ -53,6 +53,67 @@ function comValorRepasse(reserva) {
 }
 
 class ReservasService {
+  // Remove reservas "pendentes" antigas do MESMO cliente para o MESMO
+  // produto que nunca chegaram a ser pagas (ex.: pagamento falhou ou o
+  // cliente desistiu e tentou de novo). Devolve o estoque que elas
+  // seguravam. Sem isso, cada nova tentativa de compra deixava mais uma
+  // reserva duplicada no banco.
+  async limparPendentesOrfas(idCliente, idProduto) {
+    const { data: pendentes, error } = await supabase
+      .from("reservas")
+      .select("id, quantidade")
+      .eq("id_cliente", idCliente)
+      .eq("id_produto", idProduto)
+      .eq("status", "pendente");
+
+    if (error) throw error;
+    if (!pendentes || pendentes.length === 0) return;
+
+    const ids = pendentes.map((r) => r.id);
+
+    // Só apaga as que NÃO têm pagamento registrado
+    const { data: comPagamento, error: pagError } = await supabase
+      .from("pagamentos")
+      .select("id_reserva")
+      .in("id_reserva", ids);
+
+    if (pagError) throw pagError;
+    const idsPagos = new Set((comPagamento || []).map((p) => p.id_reserva));
+    const orfas = pendentes.filter((r) => !idsPagos.has(r.id));
+    if (orfas.length === 0) return;
+
+    // Devolve o estoque, se o produto controla estoque
+    const { data: produto, error: prodError } = await supabase
+      .from("produtos")
+      .select("quantidade_estoque")
+      .eq("id", idProduto)
+      .maybeSingle();
+
+    if (prodError) throw prodError;
+
+    if (produto && produto.quantidade_estoque !== null) {
+      const devolver = orfas.reduce(
+        (soma, r) => soma + Number(r.quantidade || 0),
+        0,
+      );
+      const { error: estoqueError } = await supabase
+        .from("produtos")
+        .update({ quantidade_estoque: produto.quantidade_estoque + devolver })
+        .eq("id", idProduto);
+      if (estoqueError) throw estoqueError;
+    }
+
+    const { error: delError } = await supabase
+      .from("reservas")
+      .delete()
+      .in(
+        "id",
+        orfas.map((r) => r.id),
+      );
+
+    if (delError) throw delError;
+  }
+
   async create(createReservaDto) {
     const {
       id_cliente,
@@ -77,6 +138,10 @@ class ReservasService {
       err.status = 404;
       throw err;
     }
+
+    // 1.1 Apaga tentativas anteriores não pagas desse cliente pro mesmo
+    // produto (e devolve o estoque) antes de criar a nova reserva.
+    await this.limparPendentesOrfas(id_cliente, id_produto);
 
     // 2. Verifica se o produto existe e pega o preço/estoque atuais
     const { data: produto, error: produtoError } = await supabase
