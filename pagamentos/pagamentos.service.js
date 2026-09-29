@@ -1,5 +1,6 @@
 const supabase = require("../supabaseClient");
 const crypto = require("crypto");
+const cuponsService = require("../reservas/cupons/Cupons.service");
 
 // Tabela "pagamentos": valor, forma_pagamento (FormaPagamento), status,
 // transacao_id (único), data_pagamento, comprovante_url, id_reserva
@@ -23,7 +24,9 @@ class PagamentosService {
     // 1. Confere se a reserva existe
     const { data: reserva, error: reservaError } = await supabase
       .from("reservas")
-      .select("id, status, preco_total, taxa_plataforma")
+      .select(
+        "id, status, preco_total, taxa_plataforma, id_cliente, codigo_cupom, valor_desconto",
+      )
       .eq("id", id_reserva)
       .maybeSingle();
 
@@ -70,6 +73,23 @@ class PagamentosService {
       }
     }
 
+    // 2.2 Se a reserva foi criada com cupom, confere que o resgate ainda
+    // não foi gasto em outra compra (o cupom só é consumido AQUI, depois
+    // do pagamento aprovado — não mais na criação da reserva).
+    if (reserva.codigo_cupom) {
+      const { disponivel } = await cuponsService.resgateDisponivel(
+        reserva.codigo_cupom,
+        reserva.id_cliente,
+      );
+      if (!disponivel) {
+        const err = new Error(
+          "O cupom dessa reserva já foi usado em outra compra.",
+        );
+        err.status = 409;
+        throw err;
+      }
+    }
+
     // 3. ⚠️ SIMULAÇÃO DE PAGAMENTO — aprova imediatamente, sem gateway
     // real. Isso é o que muda quando você integrar um gateway de
     // verdade: o status normalmente começaria como "pendente" aqui e
@@ -98,6 +118,17 @@ class PagamentosService {
       .eq("id", id_reserva);
 
     if (statusError) throw statusError;
+
+    // 5. Compra finalizada -> AGORA o cupom é consumido, vinculado à
+    // reserva paga. Antes disso ele fica livre pro cliente.
+    if (reserva.codigo_cupom) {
+      const cupom = await cuponsService.findByCodigo(reserva.codigo_cupom);
+      await cuponsService.marcarComoUsado(
+        cupom.id,
+        reserva.id_cliente,
+        id_reserva,
+      );
+    }
 
     return pagamento;
   }

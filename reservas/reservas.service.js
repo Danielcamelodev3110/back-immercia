@@ -192,16 +192,10 @@ class ReservasService {
       if (estoqueError) throw estoqueError;
     }
 
-    // 7. Marca o cupom como usado (se algum foi aplicado), vinculado a
-    // essa reserva — impede reaproveitar o mesmo resgate numa próxima
-    // compra.
-    if (cupomValidado) {
-      await cuponsService.marcarComoUsado(
-        cupomValidado.id,
-        id_cliente,
-        reserva.id,
-      );
-    }
+    // 7. ⚠️ O cupom NÃO é marcado como usado aqui. Ele só é consumido
+    // quando o pagamento dessa reserva for aprovado (ver
+    // pagamentos.service.js). Assim, se o cliente abandonar o pagamento,
+    // o cupom continua disponível pra ele.
 
     return comValorRepasse(reserva);
   }

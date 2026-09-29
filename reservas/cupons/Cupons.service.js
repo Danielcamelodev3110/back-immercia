@@ -213,6 +213,23 @@ class CuponsService {
     if (error) throw error;
   }
 
+  // Confere, pelo CÓDIGO, se o resgate do cliente ainda está livre. Usado
+  // pelo pagamento antes de aprovar uma reserva que tem cupom: evita que
+  // duas reservas "pendentes" com o mesmo cupom sejam pagas as duas.
+  async resgateDisponivel(codigo, idCliente) {
+    const cupom = await this.findByCodigo(codigo);
+
+    const { data: resgate, error } = await supabase
+      .from("cupons_resgates")
+      .select("id, usado")
+      .eq("id_cupom", cupom.id)
+      .eq("id_cliente", idCliente)
+      .maybeSingle();
+
+    if (error) throw error;
+    return { cupom, disponivel: !!resgate && !resgate.usado };
+  }
+
   // Ids dos cupons que um cliente já resgatou — a tela usa isso pra
   // pintar "usado" sem precisar de uma chamada por cupom.
   async findResgatadosPorCliente(idCliente) {
