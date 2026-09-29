@@ -1,4 +1,4 @@
-const supabase = require("../supabaseClient");
+const supabase = require("../../supabaseClient");
 const crypto = require("crypto");
 
 // Tabela "cupons": codigo (único), hash (único), percentual_desconto,
