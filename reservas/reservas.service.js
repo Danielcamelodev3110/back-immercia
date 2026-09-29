@@ -1,5 +1,5 @@
 const supabase = require("../supabaseClient");
-const cuponsService = require("./cupons/cupons.service");
+const cuponsService = require("./cupons/Cupons.service");
 
 // Tabela "reservas": data_reserva, data_checkin, data_checkout, quantidade,
 // preco_total, status (pendente|confirmada|cancelada|concluida),
