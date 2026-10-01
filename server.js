@@ -7,7 +7,7 @@ const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes");
 const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
 const relatorioRoutes = require("./reservas/relatorio.routes");
-const cuponsRoutes = require("./cupons/cupons.routes");
+const cuponsRoutes = require("./reservas/cupons/cupons.routes");
 const favoritosRoutes = require("./favoritos/favoritos.routes");
 
 const app = express();
