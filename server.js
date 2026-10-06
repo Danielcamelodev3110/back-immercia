@@ -10,6 +10,7 @@ const relatorioRoutes = require("./reservas/relatorio.routes");
 const cuponsRoutes = require("./reservas/cupons/Cupons.routes");
 const traducoesRoutes = require("./traducoes/traducoes.routes");
 const favoritosRoutes = require("./favoritos/favoritos.routes");
+const blogRoutes = require("./blog/blog.routes");
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
 app.use("/traducoes", traducoesRoutes);
 app.use("/favoritos", favoritosRoutes);
+app.use("/blog", blogRoutes);
 
 // 👇 Error handler central — precisa ser o ÚLTIMO app.use(), com 4 parâmetros
 app.use((err, req, res, next) => {
