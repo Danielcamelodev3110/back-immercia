@@ -25,13 +25,23 @@ const corsOptions = {
 app.use(cors(corsOptions)); // já cobre o preflight automaticamente
 
 app.use(express.json());
-app.use("/produto", produtosRoutes);
+
+// ---------------------------------------------------------------------
+// Alguns caminhos aceitam mais de um endereço, pra funcionar com todas as
+// versões do app (o app chama /produtos, o servidor antes só tinha
+// /produto; os cupons estavam em "/rservas/cupons" — com erro de digitação
+// — e o carrinho usa /cupons).
+// ---------------------------------------------------------------------
+app.use(["/produto", "/produtos"], produtosRoutes);
 app.use("/users", usersRoutes);
+
+// ⚠️ relatório e cupons ficam ANTES de "/reservas" pra uma rota genérica
+// de reservas nunca "engolir" /reservas/relatorio ou /reservas/cupons.
+app.use(["/reservas/relatorio", "/relatorio"], relatorioRoutes);
+app.use(["/reservas/cupons", "/rservas/cupons", "/cupons"], cuponsRoutes);
 app.use("/reservas", reservasRoutes);
 app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
-app.use("/reservas/relatorio", relatorioRoutes);
-app.use("/rservas/cupons", cuponsRoutes);
 app.use("/traducoes", traducoesRoutes);
 app.use("/favoritos", favoritosRoutes);
 
