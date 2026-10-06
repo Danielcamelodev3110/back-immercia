@@ -22,8 +22,7 @@ class FavoritosService {
     const { data, error } = await supabase
       .from("favoritos")
       .select("id_produto")
-      .eq("id_cliente", id)
-      .order("criado_em", { ascending: false });
+      .eq("id_cliente", id);
 
     if (error) throw error;
     let ids = (data || []).map((f) => f.id_produto);
@@ -73,17 +72,26 @@ class FavoritosService {
     if (prodError) throw prodError;
     if (!existe) throw erro("Produto não encontrado.", 404);
 
-    const { data, error } = await supabase
+    // Já favoritado? Então não faz nada (idempotente)
+    const { data: jaExiste, error: buscaError } = await supabase
       .from("favoritos")
-      .upsert(
-        { id_cliente: cliente, id_produto: produto },
-        { onConflict: "id_cliente,id_produto" },
-      )
-      .select()
-      .maybeSingle();
-    if (error) throw error;
+      .select("id_produto")
+      .eq("id_cliente", cliente)
+      .eq("id_produto", produto)
+      .limit(1);
+    if (buscaError) throw buscaError;
+    if (jaExiste && jaExiste.length > 0) {
+      return { id_cliente: cliente, id_produto: produto };
+    }
 
-    return data || { id_cliente: cliente, id_produto: produto };
+    const { error } = await supabase
+      .from("favoritos")
+      .insert({ id_cliente: cliente, id_produto: produto });
+
+    // 23505 = duplicado (duas requisições ao mesmo tempo) — tudo bem
+    if (error && error.code !== "23505") throw error;
+
+    return { id_cliente: cliente, id_produto: produto };
   }
 
   async remove(idCliente, idProduto) {
