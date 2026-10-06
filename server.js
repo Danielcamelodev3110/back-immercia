@@ -8,7 +8,7 @@ const carrinhoRoutes = require("./carrinho/carrinho.routes");
 const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
 const relatorioRoutes = require("./reservas/relatorio.routes");
 const cuponsRoutes = require("./reservas/cupons/Cupons.routes");
-const favoritosRoutes = require("./favoritos/favoritos.routes");
+const traducoesRoutes = require("./traducoes/traducoes.routes");
 
 const app = express();
 
@@ -24,14 +24,14 @@ const corsOptions = {
 app.use(cors(corsOptions)); // já cobre o preflight automaticamente
 
 app.use(express.json());
-app.use("/produtos", produtosRoutes);
+app.use("/produto", produtosRoutes);
 app.use("/users", usersRoutes);
 app.use("/reservas", reservasRoutes);
 app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
-app.use("/relatorio", relatorioRoutes);
-app.use("/cupons", cuponsRoutes);
-app.use("/favoritos", favoritosRoutes);
+app.use("/reservas", relatorioRoutes);
+app.use("/reservas/cupons", cuponsRoutes);
+app.use("/traducoes", traducoesRoutes);
 
 // 👇 Error handler central — precisa ser o ÚLTIMO app.use(), com 4 parâmetros
 app.use((err, req, res, next) => {
