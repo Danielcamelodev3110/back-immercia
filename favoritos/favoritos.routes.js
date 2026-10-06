@@ -3,12 +3,11 @@ const favoritosController = require("./favoritos.controller");
 
 const router = Router();
 
-router.post("/", favoritosController.adicionar);
+router.post("/", favoritosController.add);
 
-// ⚠️ Rota com sufixo fixo precisa vir ANTES de '/:idCliente'
-router.get("/:idCliente/ids", favoritosController.findIdsPorCliente);
-
+// ⚠️ '/:idCliente/ids' precisa vir ANTES de '/:idCliente'
+router.get("/:idCliente/ids", favoritosController.findIds);
 router.get("/:idCliente", favoritosController.findByCliente);
-router.delete("/:idCliente/:idProduto", favoritosController.remover);
+router.delete("/:idCliente/:idProduto", favoritosController.remove);
 
 module.exports = router;
