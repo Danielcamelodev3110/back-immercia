@@ -11,7 +11,7 @@ class BlogService {
       destino,
       categoria,
       conteudo,
-      imagens,
+      imagem_capa,
       id_autor,
     } = createPostDto;
 
