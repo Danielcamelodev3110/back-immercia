@@ -11,9 +11,16 @@ class BlogService {
       destino,
       categoria,
       conteudo,
-      imagem_capa,
+      imagens,
       id_autor,
     } = createPostDto;
+
+    // Aceita só strings não vazias; se não vier nada, vira array vazio.
+    const imagensLimpas = Array.isArray(imagens)
+      ? imagens
+          .filter((url) => typeof url === "string" && url.trim() !== "")
+          .map((url) => url.trim())
+      : [];
 
     if (!titulo || !conteudo) {
       const err = new Error("titulo e conteudo são obrigatórios.");
