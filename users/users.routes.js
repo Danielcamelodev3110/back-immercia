@@ -42,6 +42,7 @@ setInterval(() => {
     if (agora - r.inicio > JANELA_MS) acessos.delete(ip);
 }, JANELA_MS).unref();
 
+router.get("/recuperacao-status", recuperacaoController.status);
 router.post(
   "/esqueci-senha",
   limitarRecuperacao,
