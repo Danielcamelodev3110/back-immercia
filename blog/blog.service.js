@@ -11,7 +11,6 @@ class BlogService {
       destino,
       categoria,
       conteudo,
-      imagem_capa,
       imagens,
       id_autor,
     } = createPostDto;
@@ -68,7 +67,10 @@ class BlogService {
         destino: destino || null,
         categoria: categoria || "Destino",
         conteudo,
-        imagem_capa: imagem_capa || null,
+        imagens: imagensLimpas,
+        // imagem_capa continua sendo preenchida (primeira imagem do
+        // array) pra não quebrar nada que ainda a leia.
+        imagem_capa: imagensLimpas.length > 0 ? imagensLimpas[0] : null,
         id_autor,
         publicado: true,
       })
