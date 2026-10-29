@@ -5,6 +5,11 @@
 // o envio é feito por API HTTPS. Configure UM dos provedores no Render
 // (Environment):
 //
+//   Google Apps Script (grátis, envia pelo SEU Gmail, sem conta em serviço
+//   de e-mail e sem verificar remetente — ver google-apps-script.gs):
+//     GOOGLE_SCRIPT_URL    = URL do app da web publicado no Apps Script
+//     GOOGLE_SCRIPT_SECRET = o mesmo segredo escrito dentro do script
+//
 //   Brevo  (grátis, 300 e-mails/dia, não exige domínio próprio):
 //     BREVO_API_KEY   = chave da API (Brevo → SMTP & API → API Keys)
 //     EMAIL_FROM      = e-mail remetente JÁ VERIFICADO no Brevo (Senders)
@@ -82,6 +87,7 @@ async function postJson(url, headers, corpo) {
 
 class EmailService {
   provedor() {
+    if (process.env.GOOGLE_SCRIPT_URL && process.env.GOOGLE_SCRIPT_SECRET) return "google";
     if (process.env.BREVO_API_KEY && process.env.EMAIL_FROM) return "brevo";
     if (process.env.RESEND_API_KEY && process.env.EMAIL_FROM) return "resend";
     return null;
@@ -91,12 +97,64 @@ class EmailService {
     return this.provedor() !== null;
   }
 
+  // O Apps Script responde com um redirecionamento (302) para o resultado;
+  // o fetch do Node segue sozinho. A resposta é um JSON { ok, erro }.
+  async enviarPeloGoogleScript({ para, assunto, texto, html, remetenteNome }) {
+    const controle = new AbortController();
+    const timer = setTimeout(() => controle.abort(), 25000); // o Google pode demorar
+    try {
+      const resp = await fetch(process.env.GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          segredo: process.env.GOOGLE_SCRIPT_SECRET,
+          para,
+          assunto,
+          texto,
+          html,
+          remetenteNome,
+        }),
+        redirect: "follow",
+        signal: controle.signal,
+      });
+
+      const corpo = await resp.text();
+      let dados = null;
+      try {
+        dados = JSON.parse(corpo);
+      } catch {
+        // veio uma página HTML (ex.: tela de login do Google)
+        throw new Error(
+          `Google Script devolveu algo que não é JSON (HTTP ${resp.status}). ` +
+            `Confira se a implantação está como "Executar como: Eu" e "Quem pode acessar: Qualquer pessoa".`,
+        );
+      }
+      if (!dados.ok) {
+        throw new Error(`Google Script recusou o envio: ${dados.erro || "motivo não informado"}`);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async enviarCodigoRedefinicao({ para, nome, codigo, idioma, validadeMin }) {
     const { assunto, texto, html } = montarMensagem({ idioma, nome, codigo, validadeMin });
     const remetenteEmail = process.env.EMAIL_FROM;
     const remetenteNome = process.env.EMAIL_FROM_NAME || "Immersia";
 
     const provedor = this.provedor();
+
+    if (provedor === "google") {
+      await this.enviarPeloGoogleScript({
+        para,
+        assunto,
+        texto,
+        html,
+        remetenteNome,
+      });
+      return;
+    }
+
     if (provedor === "brevo") {
       await postJson(
         "https://api.brevo.com/v3/smtp/email",
