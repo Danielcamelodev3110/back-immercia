@@ -1,6 +1,6 @@
 const supabase = require("../supabaseClient");
 const crypto = require("crypto");
-const cuponsService = require("../reservas/cupons/Cupons.service");
+const cuponsService = require("../cupons/cupons.service");
 
 // Tabela "pagamentos": valor, forma_pagamento (FormaPagamento), status,
 // transacao_id (único), data_pagamento, comprovante_url, id_reserva

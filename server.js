@@ -6,8 +6,8 @@ const usersRoutes = require("./users/users.routes");
 const reservasRoutes = require("./reservas/reservas.routes");
 const carrinhoRoutes = require("./carrinho/carrinho.routes");
 const pagamentosRoutes = require("./pagamentos/pagamentos.routes");
-const relatorioRoutes = require("./reservas/relatorio.routes");
-const cuponsRoutes = require("./reservas/cupons/Cupons.routes");
+const relatorioRoutes = require("./relatorio/relatorio.routes");
+const cuponsRoutes = require("./cupons/Cupons.routes");
 const traducoesRoutes = require("./traducoes/traducoes.routes");
 const favoritosRoutes = require("./favoritos/favoritos.routes");
 const blogRoutes = require("./blog/blog.routes");
@@ -38,8 +38,8 @@ app.use("/users", usersRoutes);
 
 // ⚠️ relatório e cupons ficam ANTES de "/reservas" pra uma rota genérica
 // de reservas nunca "engolir" /reservas/relatorio ou /reservas/cupons.
-app.use(["/reservas/relatorio", "/relatorio"], relatorioRoutes);
-app.use(["/reservas/cupons", "/rservas/cupons", "/cupons"], cuponsRoutes);
+app.use(["/relatorio", "/relatorio"], relatorioRoutes);
+app.use(["/cupons", "/reservas/cupons", "/cupons"], cuponsRoutes);
 app.use("/reservas", reservasRoutes);
 app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
