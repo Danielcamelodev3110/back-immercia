@@ -1,111 +1,113 @@
 const supabase = require("../supabaseClient");
 
-const TIPOS = ["experiencia", "hospedagem", "pacote"];
-
-const erro = (mensagem, status = 400) => {
-  const err = new Error(mensagem);
-  err.status = status;
-  return err;
-};
-
-const paraId = (valor, nome) => {
-  const n = Number(valor);
-  if (!Number.isInteger(n) || n <= 0) throw erro(`${nome} inválido.`);
-  return n;
-};
+// Tabela "favoritos": id_cliente, id_produto, data_criacao.
+// Um cliente favorita um produto no máximo uma vez (constraint única).
 
 class FavoritosService {
-  // Ids dos produtos favoritados pelo cliente (opcionalmente só de um tipo)
-  async findIdsByCliente(idCliente, tipo) {
-    const id = paraId(idCliente, "id_cliente");
-
-    const { data, error } = await supabase
+  // Adiciona um produto aos favoritos do cliente. Se já existir, devolve
+  // o registro existente em vez de dar erro — assim o front pode chamar
+  // direto ao tocar no coração, sem precisar checar antes se já existe.
+  async adicionar(idCliente, idProduto) {
+    const { data: existente, error: existenteError } = await supabase
       .from("favoritos")
-      .select("id_produto")
-      .eq("id_cliente", id);
-
-    if (error) throw error;
-    let ids = (data || []).map((f) => f.id_produto);
-
-    if (tipo && ids.length > 0) {
-      if (!TIPOS.includes(tipo))
-        throw erro(`tipo inválido. Use: ${TIPOS.join(", ")}.`);
-      const { data: produtos, error: prodError } = await supabase
-        .from("produtos")
-        .select("id")
-        .in("id", ids)
-        .eq("tipo_produto", tipo);
-      if (prodError) throw prodError;
-      const permitidos = new Set((produtos || []).map((p) => p.id));
-      ids = ids.filter((i) => permitidos.has(i));
-    }
-
-    return ids;
-  }
-
-  // Produtos completos favoritados pelo cliente
-  async findByCliente(idCliente, tipo) {
-    const ids = await this.findIdsByCliente(idCliente, tipo);
-    if (ids.length === 0) return [];
-
-    const { data, error } = await supabase
-      .from("produtos")
       .select("*")
-      .in("id", ids);
-    if (error) throw error;
+      .eq("id_cliente", idCliente)
+      .eq("id_produto", idProduto)
+      .maybeSingle();
 
-    // mantém a ordem "mais recente primeiro"
-    const porId = new Map((data || []).map((p) => [p.id, p]));
-    return ids.map((i) => porId.get(i)).filter(Boolean);
-  }
+    if (existenteError) throw existenteError;
+    if (existente) return existente;
 
-  // Idempotente: favoritar duas vezes não duplica nem dá erro
-  async add({ id_cliente, id_produto }) {
-    const cliente = paraId(id_cliente, "id_cliente");
-    const produto = paraId(id_produto, "id_produto");
-
-    const { data: existe, error: prodError } = await supabase
+    const { data: produto, error: produtoError } = await supabase
       .from("produtos")
       .select("id")
-      .eq("id", produto)
+      .eq("id", idProduto)
       .maybeSingle();
-    if (prodError) throw prodError;
-    if (!existe) throw erro("Produto não encontrado.", 404);
 
-    // Já favoritado? Então não faz nada (idempotente)
-    const { data: jaExiste, error: buscaError } = await supabase
-      .from("favoritos")
-      .select("id_produto")
-      .eq("id_cliente", cliente)
-      .eq("id_produto", produto)
-      .limit(1);
-    if (buscaError) throw buscaError;
-    if (jaExiste && jaExiste.length > 0) {
-      return { id_cliente: cliente, id_produto: produto };
+    if (produtoError) throw produtoError;
+    if (!produto) {
+      const err = new Error("Produto não encontrado.");
+      err.status = 404;
+      throw err;
     }
 
-    const { error } = await supabase
+    const { data: favorito, error } = await supabase
       .from("favoritos")
-      .insert({ id_cliente: cliente, id_produto: produto });
+      .insert({ id_cliente: idCliente, id_produto: idProduto })
+      .select()
+      .single();
 
-    // 23505 = duplicado (duas requisições ao mesmo tempo) — tudo bem
-    if (error && error.code !== "23505") throw error;
-
-    return { id_cliente: cliente, id_produto: produto };
+    if (error) throw error;
+    return favorito;
   }
 
-  async remove(idCliente, idProduto) {
-    const cliente = paraId(idCliente, "id_cliente");
-    const produto = paraId(idProduto, "id_produto");
-
-    const { error } = await supabase
+  async remover(idCliente, idProduto) {
+    const { data, error } = await supabase
       .from("favoritos")
       .delete()
-      .eq("id_cliente", cliente)
-      .eq("id_produto", produto);
-    if (error) throw error;
+      .eq("id_cliente", idCliente)
+      .eq("id_produto", idProduto)
+      .select()
+      .maybeSingle();
 
-    return { id_cliente: cliente, id_produto: produto, removido: true };
+    if (error) throw error;
+    if (!data) {
+      const err = new Error("Esse produto não estava nos favoritos.");
+      err.status = 404;
+      throw err;
+    }
+    return data;
+  }
+
+  // Lista os favoritos de um cliente, já com os dados do produto (join),
+  // mais recentes primeiro — é isso que a tela de Favoritos consome.
+  async findByCliente(idCliente) {
+    // 🔧 Duas consultas em vez de um join do Supabase: o join exige uma
+    // chave estrangeira configurada entre favoritos e produtos (e pode
+    // devolver o produto sob outro nome ou sem ele). Assim funciona
+    // independente de como a tabela foi criada.
+    const { data: favoritos, error } = await supabase
+      .from("favoritos")
+      .select("id, id_produto, data_criacao")
+      .eq("id_cliente", idCliente)
+      .order("data_criacao", { ascending: false });
+
+    if (error) throw error;
+    if (!favoritos || favoritos.length === 0) return [];
+
+    const idsProdutos = favoritos.map((f) => f.id_produto);
+
+    const { data: produtos, error: produtosError } = await supabase
+      .from("produtos")
+      .select("*")
+      .in("id", idsProdutos);
+
+    if (produtosError) throw produtosError;
+
+    const produtoPorId = new Map((produtos || []).map((p) => [p.id, p]));
+
+    // Favoritos cujo produto foi apagado não aparecem na lista.
+    return favoritos
+      .map((f) => ({
+        id: f.id,
+        data_criacao: f.data_criacao,
+        id_produto: f.id_produto,
+        produto: produtoPorId.get(f.id_produto) || null,
+      }))
+      .filter((f) => f.produto);
+  }
+
+  // Ids dos produtos que um cliente favoritou — útil pras telas de
+  // listagem de produtos pintarem o coração preenchido sem precisar
+  // buscar o favorito inteiro por item.
+  async findIdsPorCliente(idCliente) {
+    const { data, error } = await supabase
+      .from("favoritos")
+      .select("id_produto")
+      .eq("id_cliente", idCliente);
+
+    if (error) throw error;
+    return (data || []).map((f) => f.id_produto);
   }
 }
 

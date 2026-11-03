@@ -1,11 +1,11 @@
 const supabase = require("../supabaseClient");
-const cuponsService = require("./cupons/Cupons.service");
+const cuponsService = require("../cupons/cupons.service");
 
 // Tabela "reservas": data_reserva, data_checkin, data_checkout, quantidade,
 // preco_total, status (pendente|confirmada|cancelada|concluida),
 // forma_pagamento (cartao|pix|boleto|dinheiro), codigo_reserva (único),
 // observacoes, id_cliente, id_produto, taxa_plataforma, taxa_produto,
-// codigo_cupom, valor_desconto.
+// codigo_cupom, valor_desconto, pacote, valor_desconto_pacote.
 
 // 👇 Percentuais das taxas. Configuráveis via .env:
 // - TAXA_PLATAFORMA_PERCENTUAL (padrão 0.10 = 10%): cobrada do CLIENTE,
@@ -22,6 +22,19 @@ const TAXA_PLATAFORMA_PERCENTUAL = Number(
 const TAXA_PRODUTO_PERCENTUAL = Number(
   process.env.TAXA_PRODUTO_PERCENTUAL || 0.03,
 );
+
+// 👇 Desconto dado ao cliente que monta um pacote (hospedagem +
+// experiência). Configurável via .env (padrão 0.05 = 5%). Aplicado sobre
+// o preço do item ANTES das taxas, então a taxa da plataforma (10%) e a
+// do anfitrião (3%) passam a ser calculadas sobre o valor já com
+// desconto. Se mudar aqui, mude também DESCONTO_PACOTE_PERCENTUAL no
+// CarrinhoContext.tsx do app (que só usa o número pra exibir).
+const DESCONTO_PACOTE_PERCENTUAL = Number(
+  process.env.DESCONTO_PACOTE_PERCENTUAL || 0.05,
+);
+
+// Tipos de produto que podem fazer parte de um pacote
+const TIPOS_DE_PACOTE = ["hospedagem", "experiencia"];
 
 function gerarCodigoReserva() {
   const aleatorio = Math.random().toString(36).slice(2, 10).toUpperCase();
@@ -53,67 +66,6 @@ function comValorRepasse(reserva) {
 }
 
 class ReservasService {
-  // Remove reservas "pendentes" antigas do MESMO cliente para o MESMO
-  // produto que nunca chegaram a ser pagas (ex.: pagamento falhou ou o
-  // cliente desistiu e tentou de novo). Devolve o estoque que elas
-  // seguravam. Sem isso, cada nova tentativa de compra deixava mais uma
-  // reserva duplicada no banco.
-  async limparPendentesOrfas(idCliente, idProduto) {
-    const { data: pendentes, error } = await supabase
-      .from("reservas")
-      .select("id, quantidade")
-      .eq("id_cliente", idCliente)
-      .eq("id_produto", idProduto)
-      .eq("status", "pendente");
-
-    if (error) throw error;
-    if (!pendentes || pendentes.length === 0) return;
-
-    const ids = pendentes.map((r) => r.id);
-
-    // Só apaga as que NÃO têm pagamento registrado
-    const { data: comPagamento, error: pagError } = await supabase
-      .from("pagamentos")
-      .select("id_reserva")
-      .in("id_reserva", ids);
-
-    if (pagError) throw pagError;
-    const idsPagos = new Set((comPagamento || []).map((p) => p.id_reserva));
-    const orfas = pendentes.filter((r) => !idsPagos.has(r.id));
-    if (orfas.length === 0) return;
-
-    // Devolve o estoque, se o produto controla estoque
-    const { data: produto, error: prodError } = await supabase
-      .from("produtos")
-      .select("quantidade_estoque")
-      .eq("id", idProduto)
-      .maybeSingle();
-
-    if (prodError) throw prodError;
-
-    if (produto && produto.quantidade_estoque !== null) {
-      const devolver = orfas.reduce(
-        (soma, r) => soma + Number(r.quantidade || 0),
-        0,
-      );
-      const { error: estoqueError } = await supabase
-        .from("produtos")
-        .update({ quantidade_estoque: produto.quantidade_estoque + devolver })
-        .eq("id", idProduto);
-      if (estoqueError) throw estoqueError;
-    }
-
-    const { error: delError } = await supabase
-      .from("reservas")
-      .delete()
-      .in(
-        "id",
-        orfas.map((r) => r.id),
-      );
-
-    if (delError) throw delError;
-  }
-
   async create(createReservaDto) {
     const {
       id_cliente,
@@ -123,7 +75,20 @@ class ReservasService {
       data_checkout,
       observacoes,
       codigo_cupom,
+      pacote,
     } = createReservaDto;
+
+    const ehPacote = pacote === true;
+
+    // O desconto do pacote não acumula com cupom — recusa antes de mexer
+    // em qualquer coisa.
+    if (ehPacote && codigo_cupom) {
+      const err = new Error(
+        "Cupom não pode ser usado junto com o desconto de pacote.",
+      );
+      err.status = 409;
+      throw err;
+    }
 
     // 1. Verifica se o cliente existe
     const { data: cliente, error: clienteError } = await supabase
@@ -139,14 +104,10 @@ class ReservasService {
       throw err;
     }
 
-    // 1.1 Apaga tentativas anteriores não pagas desse cliente pro mesmo
-    // produto (e devolve o estoque) antes de criar a nova reserva.
-    await this.limparPendentesOrfas(id_cliente, id_produto);
-
     // 2. Verifica se o produto existe e pega o preço/estoque atuais
     const { data: produto, error: produtoError } = await supabase
       .from("produtos")
-      .select("id, preco, quantidade_estoque, status")
+      .select("id, preco, quantidade_estoque, status, tipo_produto")
       .eq("id", id_produto)
       .maybeSingle();
 
@@ -160,6 +121,15 @@ class ReservasService {
     if (produto.status !== "disponivel") {
       const err = new Error("Este produto não está disponível para compra.");
       err.status = 409;
+      throw err;
+    }
+
+    // Só hospedagem e experiência entram em pacote
+    if (ehPacote && !TIPOS_DE_PACOTE.includes(produto.tipo_produto)) {
+      const err = new Error(
+        "Esse tipo de produto não participa do desconto de pacote.",
+      );
+      err.status = 400;
       throw err;
     }
 
@@ -203,7 +173,15 @@ class ReservasService {
       );
     }
 
-    // preco_base = preço já com o desconto do cupom aplicado (se houver).
+    // 4.2 Desconto do pacote (5%), sobre o preço cru do item. Como não
+    // acumula com cupom (checado acima), só um dos dois descontos existe.
+    const valor_desconto_pacote = ehPacote
+      ? Number(
+          (preco_base_sem_desconto * DESCONTO_PACOTE_PERCENTUAL).toFixed(2),
+        )
+      : 0;
+
+    // preco_base = preço já com o desconto do cupom OU do pacote (se houver).
     // taxa_plataforma (10%) = cobrada do CLIENTE, somada ao preco_base
     //   → forma o preco_total, que é o que o cliente paga. Aparece nas
     //   telas de carrinho e pagamento.
@@ -212,7 +190,11 @@ class ReservasService {
     //   cliente embutida) → só é descontada do repasse ao anfitrião.
     //   NUNCA deve ser exibida nas telas de carrinho ou pagamento.
     const preco_base = Number(
-      (preco_base_sem_desconto - valor_desconto).toFixed(2),
+      (
+        preco_base_sem_desconto -
+        valor_desconto -
+        valor_desconto_pacote
+      ).toFixed(2),
     );
     const taxa_plataforma = Number(
       (TAXA_PLATAFORMA_PERCENTUAL * preco_base).toFixed(2),
@@ -234,6 +216,8 @@ class ReservasService {
         taxa_produto,
         codigo_cupom: cupomValidado ? cupomValidado.codigo : null,
         valor_desconto,
+        pacote: ehPacote,
+        valor_desconto_pacote,
         status: "pendente",
         codigo_reserva: gerarCodigoReserva(),
         data_checkin: data_checkin || null,
@@ -257,10 +241,16 @@ class ReservasService {
       if (estoqueError) throw estoqueError;
     }
 
-    // 7. ⚠️ O cupom NÃO é marcado como usado aqui. Ele só é consumido
-    // quando o pagamento dessa reserva for aprovado (ver
-    // pagamentos.service.js). Assim, se o cliente abandonar o pagamento,
-    // o cupom continua disponível pra ele.
+    // 7. Marca o cupom como usado (se algum foi aplicado), vinculado a
+    // essa reserva — impede reaproveitar o mesmo resgate numa próxima
+    // compra.
+    if (cupomValidado) {
+      await cuponsService.marcarComoUsado(
+        cupomValidado.id,
+        id_cliente,
+        reserva.id,
+      );
+    }
 
     return comValorRepasse(reserva);
   }
