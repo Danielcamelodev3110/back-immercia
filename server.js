@@ -39,7 +39,7 @@ app.use("/users", usersRoutes);
 // ⚠️ relatório e cupons ficam ANTES de "/reservas" pra uma rota genérica
 // de reservas nunca "engolir" /reservas/relatorio ou /reservas/cupons.
 app.use(["/relatorio", "/relatorio"], relatorioRoutes);
-app.use(["/cupons", "/reservas/cupons", "/cupons"], cuponsRoutes);
+app.use(["/cupons", "/cupons", "/cupons"], cuponsRoutes);
 app.use("/reservas", reservasRoutes);
 app.use("/carrinho", carrinhoRoutes);
 app.use("/pagamentos", pagamentosRoutes);
